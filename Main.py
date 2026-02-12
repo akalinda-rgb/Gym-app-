@@ -1,127 +1,103 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import google.generativeai as genai
-from PIL import Image
 import datetime
-import io
-import json
 
-# --- 1. AI CONFIGURATION ---
-try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-except Exception as e:
-    st.error("⚠️ AI Key not found in Secrets. Please add GEMINI_API_KEY.")
-    st.stop()
+# --- 1. PAGE CONFIG ---
+st.set_page_config(page_title="Baller Rebound", layout="wide", page_icon="🏀")
 
-# --- 2. SETTINGS & STYLING ---
-st.set_page_config(page_title="BallerPro Fitness", layout="wide", page_icon="🏀")
+# --- 2. THEMES & STYLING ---
 st.markdown("""
     <style>
-    .metric-card { background-color: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { font-size: 18px; font-weight: bold; }
+    .metric-card { background-color: #1e1e1e; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #333; }
+    stMetric { background-color: #0e1117; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. SESSION STATE (The "Database") ---
-if 'food_log' not in st.session_state:
-    st.session_state.food_log = []
-if 'weight_history' not in st.session_state:
-    st.session_state.weight_history = pd.DataFrame(columns=["Date", "Weight"])
+# --- 3. PERSISTENT DATA (Session State) ---
+if 'meal_log' not in st.session_state:
+    st.session_state.meal_log = []
+if 'weight_data' not in st.session_state:
+    st.session_state.weight_data = pd.DataFrame(columns=["Date", "Weight"])
 
-# --- 4. CALCULATE GOALS ---
-# Basketball Performance Target: High Protein, Moderate Carbs
-daily_cal_goal = 2800 
-p_goal, c_goal, f_goal = 180, 350, 80
+# --- 4. APP LAYOUT ---
+st.title("🏀 Baller Rebound: Manual Tracker")
+st.info("No API Key connected. Manual logging mode active.")
 
-# --- 5. APP LAYOUT ---
-st.title("🏀 BallerPro Performance Tracker")
-st.caption("Professional Grade Nutrition & Training for Basketball Comebacks")
+tab1, tab2, tab3 = st.tabs(["🍎 Daily Nutrition", "🏋️ Workout Library", "📈 Progress Tracker"])
 
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🍎 Nutrition Logger", "🏋️ Workout Coach", "📉 History"])
-
-# --- TAB 1: DASHBOARD (MyFitnessPal Style) ---
+# --- TAB 1: NUTRITION ---
 with tab1:
-    st.subheader("Today's Summary")
-    
-    # Calculate Totals
-    total_p = sum(item['Protein'] for item in st.session_state.food_log)
-    total_c = sum(item['Carbs'] for item in st.session_state.food_log)
-    total_f = sum(item['Fats'] for item in st.session_state.food_log)
+    # Math for the day
+    total_p = sum(m['Protein'] for m in st.session_state.meal_log)
+    total_c = sum(m['Carbs'] for m in st.session_state.meal_log)
+    total_f = sum(m['Fats'] for m in st.session_state.meal_log)
     total_cal = (total_p * 4) + (total_c * 4) + (total_f * 9)
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Calories", f"{total_cal} / {daily_cal_goal}", f"{daily_cal_goal - total_cal} left")
-    col2.metric("Protein", f"{total_p}g", f"{p_goal - total_p}g left")
-    col3.metric("Carbs", f"{total_c}g", f"{c_goal - total_c}g left")
-    col4.metric("Fats", f"{total_f}g", f"{f_goal - total_f}g left")
-
-    # Progress Bars
-    st.progress(min(total_cal / daily_cal_goal, 1.0))
-    
-    if st.session_state.food_log:
-        st.write("### Today's Meals")
-        st.table(pd.DataFrame(st.session_state.food_log))
-
-# --- TAB 2: NUTRITION LOGGER ---
-with tab2:
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.write("### 📸 AI Photo Scan")
-        cam_file = st.file_uploader("Snap a meal or label", type=['jpg', 'jpeg', 'png'])
-        if cam_file:
-            st.image(cam_file, width=250)
-            if st.button("Identify Meal & Macros"):
-                with st.spinner("AI is analyzing..."):
-                    prompt = "Identify this food and estimate Protein, Carbs, and Fats in grams. Return ONLY JSON: {'Meal': 'name', 'Protein': 0, 'Carbs': 0, 'Fats': 0}"
-                    response = model.generate_content([prompt, Image.open(cam_file)])
-                    try:
-                        data = json.loads(response.text.strip('```json').strip())
-                        st.session_state.food_log.append(data)
-                        st.success(f"Added {data['Meal']}!")
-                        st.rerun()
-                    except:
-                        st.error("AI couldn't read the image. Try manual entry.")
-
-    with col_b:
-        st.write("### ✍️ Manual Entry")
-        with st.form("manual_meal"):
-            m_name = st.text_input("Meal Name")
-            m_p = st.number_input("Protein (g)", 0)
-            m_c = st.number_input("Carbs (g)", 0)
-            m_f = st.number_input("Fats (g)", 0)
-            if st.form_submit_button("Add Meal"):
-                st.session_state.food_log.append({"Meal": m_name, "Protein": m_p, "Carbs": m_c, "Fats": m_f})
-                st.rerun()
-
-# --- TAB 3: WORKOUT COACH ---
-with tab3:
-    st.write("### 🏃‍♂️ Return-to-Play Training")
-    weight = st.number_input("Current Weight (kg)", 89.0)
-    focus = st.selectbox("Today's Focus", ["Foundation (Legs/SI Joint)", "Skill Work (Shooting/Handles)", "Conditioning", "Full Body Strength"])
-    
-    if st.button("Generate Dynamic Workout"):
-        with st.spinner("Consulting Pro Coach..."):
-            workout_prompt = f"Create a detailed basketball workout for an 89kg athlete focusing on {focus}. Must be safe for Achilles/SI Joint. Include sets, reps, and rest times."
-            res = model.generate_content(workout_prompt)
-            st.markdown(res.text)
-
-# --- TAB 4: HISTORY & WEIGHT ---
-with tab4:
-    st.header("Weight Tracker")
-    w_val = st.number_input("Log Weight", value=weight)
-    if st.button("Save Weight"):
-        new_w = pd.DataFrame({"Date": [datetime.date.today().strftime('%Y-%m-%d')], "Weight": [w_val]})
-        st.session_state.weight_history = pd.concat([st.session_state.weight_history, new_w]).drop_duplicates()
-    
-    if not st.session_state.weight_history.empty:
-        fig = px.line(st.session_state.weight_history, x="Date", y="Weight", title="Weight Over Time", markers=True)
-        st.plotly_chart(fig, use_container_width=True)
+    # Dashboard
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Calories", f"{total_cal}", "Goal: 2800")
+    c2.metric("Protein", f"{total_p}g", "Goal: 180g")
+    c3.metric("Carbs", f"{total_c}g", "Goal: 350g")
+    c4.metric("Fats", f"{total_f}g", "Goal: 80g")
 
     st.divider()
-    if st.button("Clear All Data"):
-        st.session_state.food_log = []
-        st.rerun()
+
+    # Manual Entry instead of AI Scan
+    with st.form("manual_meal"):
+        st.write("### Log Your Food")
+        name = st.text_input("Meal Name (e.g., Post-Workout Shake)")
+        col_p, col_c, col_f = st.columns(3)
+        p = col_p.number_input("Protein (g)", 0)
+        c = col_c.number_input("Carbs (g)", 0)
+        f = col_f.number_input("Fats (g)", 0)
+        if st.form_submit_button("Add Meal"):
+            st.session_state.meal_log.append({"Meal": name, "Protein": p, "Carbs": c, "Fats": f})
+            st.rerun()
+
+    if st.session_state.meal_log:
+        st.write("### Today's Meals")
+        st.table(pd.DataFrame(st.session_state.meal_log))
+        if st.button("Reset Day"):
+            st.session_state.meal_log = []
+            st.rerun()
+
+# --- TAB 2: WORKOUT LIBRARY ---
+with tab2:
+    st.header("Return-to-Play Programs")
+    st.write("Since AI is offline, choose a pre-set routine for your 89kg frame:")
+    
+    plan = st.selectbox("Select Focus", ["SI Joint Stability", "Achilles Strengthening", "Shooting Mechanics"])
+    
+    if plan == "SI Joint Stability":
+        st.warning("Focus: Glute activation and core stability to protect the lower back.")
+        st.markdown("""
+        1. **Glute Bridges:** 3 sets x 15 reps
+        2. **Bird-Dogs:** 3 sets x 10 reps per side
+        3. **Deadbugs:** 3 sets x 12 reps
+        4. **Plank:** 3 sets x 45 seconds
+        """)
+    elif plan == "Achilles Strengthening":
+        st.warning("Focus: Eccentric loading to rebuild tendon durability.")
+        st.markdown("""
+        1. **Slow Heel Drops:** 3 sets x 15 reps (off a step)
+        2. **Isometric Calf Hold:** 4 sets x 30 seconds
+        3. **Tibialis Raises:** 3 sets x 20 reps
+        """)
+    else:
+        st.markdown("""
+        1. **Form Shooting:** 50 makes from 3 feet
+        2. **Elbow Jumper:** 10 makes from each side
+        3. **Free Throws:** 2 sets of 10
+        """)
+
+# --- TAB 3: PROGRESS ---
+with tab3:
+    st.header("Weight History")
+    w_val = st.number_input("Today's Weight (kg)", 89.0)
+    if st.button("Log Progress"):
+        new_w = pd.DataFrame({"Date": [datetime.date.today()], "Weight": [w_val]})
+        st.session_state.weight_data = pd.concat([st.session_state.weight_data, new_w])
+    
+    if not st.session_state.weight_data.empty:
+        st.plotly_chart(px.line(st.session_state.weight_data, x="Date", y="Weight", markers=True), use_container_width=True)
